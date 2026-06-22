@@ -210,8 +210,7 @@ function buildAccItem(bag, idx) {
     addBtn.disabled = true;
     qtyField.style.display = 'none';
     qtyInp.value = '1';
-    if (!cat || !INVENTORY[cat]) return;
-    INVENTORY[cat].items.forEach(it => {
+    if (!cat || !INVENTORY[cat]) return;    INVENTORY[cat].items.forEach(it => {
       const o = document.createElement('option');
       o.value = it.name; o.textContent = it.name; itemSel.appendChild(o);
     });
@@ -220,7 +219,7 @@ function buildAccItem(bag, idx) {
       sortField: { field: 'text', direction: 'asc' },
       onChange(val) {
         addBtn.disabled = !val;
-        qtyField.style.display = (val && QUANTITY_CATS.has(cat)) ? '' : 'none';
+        qtyField.style.display = (val && QUANTITY_CATS.has(cat)) ? 'flex' : 'none';
         if (!val) qtyInp.value = '1';
       }
     });
