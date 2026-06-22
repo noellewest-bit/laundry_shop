@@ -14,44 +14,42 @@
 
   <div class="app-header">
     <h1>🧴 Send to Laundry Shop</h1>
-    <p>Group items into bags — weigh each bag as a whole</p>
     <div id="loadingBanner" style="display:none;">⏳ Loading inventory…</div>
     <div id="sourceBadge"></div>
   </div>
 
-  <!-- Step 1: Number of bags -->
-  <div class="card">
-    <div class="card-title">How many bags?</div>
-    <div class="bag-count-row">
+  <!-- Bag count + Set -->
+  <div class="card setup-card">
+    <div class="setup-row">
+      <label for="numBagsInput">Number of bags:</label>
       <input type="number" id="numBagsInput" min="1" max="30" value="1" class="bag-count-input" />
       <button class="btn btn-primary" onclick="onSetBags()">Set Bags ➜</button>
     </div>
   </div>
 
-  <!-- Bags rendered here -->
+  <!-- Accordion bags -->
   <div id="bagsContainer"></div>
 
   <!-- Grand Totals -->
-  <div class="card" id="grandTotalsCard" style="display:none;">
-    <div class="card-title">📊 Grand Totals</div>
-    <div class="grand-totals-row">
-      <div class="grand-total-box">
-        <div class="gt-label">Total Bags</div>
-        <div class="gt-value" id="gtBags">0</div>
+  <div class="card totals-card" id="grandTotalsCard" style="display:none;">
+    <div class="totals-row">
+      <div class="total-chip">
+        <span class="tc-label">Bags</span>
+        <span class="tc-value" id="gtBags">0</span>
       </div>
-      <div class="grand-total-box">
-        <div class="gt-label">Total Items</div>
-        <div class="gt-value" id="gtItems">0</div>
+      <div class="total-chip">
+        <span class="tc-label">Items</span>
+        <span class="tc-value" id="gtItems">0</span>
       </div>
-      <div class="grand-total-box">
-        <div class="gt-label">Total Weight</div>
-        <div class="gt-value" id="gtWeight">0.000 kg</div>
+      <div class="total-chip total-chip-wide">
+        <span class="tc-label">Total Weight</span>
+        <span class="tc-value" id="gtWeight">0.000 kg</span>
       </div>
     </div>
   </div>
 
   <div class="app-footer">Noelle West • Send to Laundry Shop</div>
 </div>
-<script src="app.js?v=1"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>
