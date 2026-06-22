@@ -381,11 +381,10 @@ function buildSummaryText() {
     const w = parseFloat(bag.weight) || 0;
     const n = bag.items.reduce((s, it) => s + (it.isQty ? it.qty : 1), 0);
     grandItems += n; grandWeight += w;
-    lines.push(`--- BAG ${idx + 1} ---`);
-    if (!bag.items.length) { lines.push('(no items)'); }
-    else bag.items.forEach(it => {
-      lines.push(`[${it.cat}] ${it.name}${it.isQty && it.qty > 1 ? ` ×${it.qty}` : ''}`);
-    });
+    const itemStr = bag.items.length
+      ? bag.items.map(it => it.name + (it.isQty && it.qty > 1 ? ` ×${it.qty}` : '')).join(', ')
+      : '(no items)';
+    lines.push(`BAG ${idx + 1}: ${itemStr}`);
     lines.push(`BAG WEIGHT: ${w.toFixed(3)}kg`);
     lines.push('');
   });
