@@ -377,17 +377,32 @@ function renderTotals() {
 function buildSummaryText() {
   if (!bags.length) return '— No bags —';
   let lines = [], grandItems = 0, grandWeight = 0;
+
   bags.forEach((bag, idx) => {
     const w = parseFloat(bag.weight) || 0;
     const n = bag.items.reduce((s, it) => s + (it.isQty ? it.qty : 1), 0);
     grandItems += n; grandWeight += w;
-    const itemStr = bag.items.length
-      ? bag.items.map(it => it.name + (it.isQty && it.qty > 1 ? ` ×${it.qty}` : '')).join(', ')
-      : '(no items)';
-    lines.push(`BAG ${idx + 1}: ${itemStr}`);
-    lines.push(`BAG WEIGHT: ${w.toFixed(3)}kg`);
+
+    lines.push(`BAG ${idx + 1} (${w.toFixed(3)}kg):`);
+
+    if (!bag.items.length) {
+      lines.push('  (no items)');
+    } else {
+      // Group by category, preserving insertion order
+      const catMap = {};
+      bag.items.forEach(it => {
+        if (!catMap[it.cat]) catMap[it.cat] = [];
+        catMap[it.cat].push(it.name + (it.isQty && it.qty > 1 ? ` ×${it.qty}` : ''));
+      });
+      Object.entries(catMap).forEach(([cat, items]) => {
+        lines.push(`  ${cat}: ${items.join(', ')}`);
+      });
+    }
+
+    lines.push(`  BAG WEIGHT: ${w.toFixed(3)}kg`);
     lines.push('');
   });
+
   lines.push(`TOTAL BAGS: ${bags.length}`);
   lines.push(`TOTAL ITEMS: ${grandItems}`);
   lines.push(`TOTAL WEIGHT: ${grandWeight.toFixed(3)}kg`);
