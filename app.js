@@ -1,9 +1,8 @@
 /**
- * Noelle West — Send to Laundry Shop Calculator
- * Items grouped into bags; each bag weighed as a whole.
+ * Noelle West — Send to Laundry Shop
+ * Accordion layout: bags collapse/expand, weighed as a whole.
  */
 
-// ── Google Sheets Config ──
 const SHEET_ID = '1-QD9UJ99Rjl1JPlBdKPo7hz5MBOiJKkMyD-qWlD520s';
 
 const SHEET_NAMES = [
@@ -13,17 +12,16 @@ const SHEET_NAMES = [
   'BCC','BPOC','VST','S-UPPER','POLO','ACC','PEN','PANTS'
 ];
 
-// Categories that need a quantity input
 const QUANTITY_CATS = new Set([
   'BCPO','BPSC','BPS','ACC','PEN','PANTS','S-UPPER',
   'PET','MOH','BMG','FGG',
   'BOY','BPO','BPOL','COAT BARONG','BCC','BPOC','VST','POLO'
 ]);
 
-// ── State ──
+// State
 let INVENTORY = {};
-// bags[i] = { items: [ { cat, name, qty, isQty } ], weight: '' }
-let bags = [];
+let bags = []; // [ { items: [{cat,name,qty,isQty}], weight: '' } ]
+let tomInstances = {}; // keyed by bag idx
 window.latestSubmissionText = '';
 
 // ── Boot ──
@@ -37,23 +35,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ── Load Inventory ──
 async function loadInventory() {
   try {
-    const data = await loadFromGoogleSheets();
+    const data = await loadFromSheets();
     if (data && Object.keys(data).length > 0) {
       INVENTORY = data;
-      showBadge('🟢 Live from Google Sheets', '#3DAB6A');
+      setBadge('🟢 Live from Google Sheets', '#3DAB6A');
       return;
     }
   } catch(e) { console.warn('Sheets failed:', e); }
-  showBadge('🔴 Could not load inventory', '#E05252');
+  setBadge('🔴 Could not load inventory', '#E05252');
 }
 
-function showBadge(text, color) {
+function setBadge(t, c) {
   const b = document.getElementById('sourceBadge');
-  if (b) { b.textContent = text; b.style.color = color; }
+  if (b) { b.textContent = t; b.style.color = c; }
 }
 
-// ── Google Sheets CSV Loader ──
-async function loadFromGoogleSheets() {
+// ── Google Sheets CSV ──
+async function loadFromSheets() {
   const result = {};
   const fetches = SHEET_NAMES.map(name =>
     fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`)
@@ -61,19 +59,14 @@ async function loadFromGoogleSheets() {
       .then(csv => ({ name, csv }))
       .catch(() => ({ name, csv: null }))
   );
-  const results = await Promise.all(fetches);
-  for (const { name, csv } of results) {
+  for (const { name, csv } of await Promise.all(fetches)) {
     if (!csv || csv.trim().startsWith('<') || !csv.trim()) continue;
-    const rows    = parseCSV(csv);
+    const rows = parseCSV(csv);
     if (rows.length < 2) continue;
-    const header  = rows[0].map(h => h.trim().toUpperCase());
-    let nameIdx   = header.findIndex(h => h.includes('PRODUCT NAME'));
-    if (nameIdx < 0) nameIdx = 0;
-    const items   = [];
-    for (const row of rows.slice(1)) {
-      const n = (row[nameIdx] || '').trim();
-      if (n) items.push({ name: n });
-    }
+    const header = rows[0].map(h => h.trim().toUpperCase());
+    let ni = header.findIndex(h => h.includes('PRODUCT NAME'));
+    if (ni < 0) ni = 0;
+    const items = rows.slice(1).map(r => (r[ni] || '').trim()).filter(Boolean).map(n => ({ name: n }));
     if (items.length) result[name] = { items };
   }
   return result;
@@ -98,130 +91,143 @@ function parseCSV(text) {
 // ── Set Bags ──
 window.onSetBags = function() {
   const n = Math.max(1, Math.min(30, parseInt(document.getElementById('numBagsInput').value) || 1));
+
+  // Destroy old tom instances
+  Object.values(tomInstances).forEach(t => { try { t.destroy(); } catch(e){} });
+  tomInstances = {};
+
   while (bags.length < n) bags.push({ items: [], weight: '' });
   while (bags.length > n) bags.pop();
+
   renderAllBags();
   renderTotals();
   renderSummary();
 };
 
-// ── Render All Bags ──
+// ── Render All Bags (accordion) ──
 function renderAllBags() {
   const container = document.getElementById('bagsContainer');
   container.innerHTML = '';
-  bags.forEach((bag, idx) => container.appendChild(buildBagCard(bag, idx)));
+  bags.forEach((bag, idx) => container.appendChild(buildAccItem(bag, idx)));
   document.getElementById('grandTotalsCard').style.display = bags.length ? '' : 'none';
+  // Open the first bag by default
+  if (bags.length > 0) {
+    const first = document.getElementById(`acc_${0}`);
+    if (first) first.classList.add('open');
+  }
 }
 
-// ── Build One Bag Card ──
-function buildBagCard(bag, idx) {
-  const card = document.createElement('div');
-  card.className = 'bag-card';
-  card.id = `bagCard_${idx}`;
+// ── Build Accordion Item ──
+function buildAccItem(bag, idx) {
+  const acc = document.createElement('div');
+  acc.className = 'acc-item';
+  acc.id = `acc_${idx}`;
 
   // ── Header ──
   const hdr = document.createElement('div');
-  hdr.className = 'bag-card-header';
-  const h2 = document.createElement('h2');
-  h2.textContent = `Bag ${idx + 1}`;
-  const countPill = document.createElement('span');
-  countPill.className = 'bag-item-count';
-  countPill.id = `bagCount_${idx}`;
-  countPill.textContent = formatItemCount(bag);
-  hdr.appendChild(h2); hdr.appendChild(countPill);
-  card.appendChild(hdr);
+  hdr.className = 'acc-header';
+
+  const chevron = document.createElement('span');
+  chevron.className = 'acc-chevron';
+  chevron.textContent = '▶';
+
+  const title = document.createElement('span');
+  title.className = 'acc-title';
+  title.textContent = `Bag ${idx + 1}`;
+
+  const meta = document.createElement('div');
+  meta.className = 'acc-meta';
+  meta.id = `accMeta_${idx}`;
+  updateMeta(meta, bag);
+
+  hdr.appendChild(chevron);
+  hdr.appendChild(title);
+  hdr.appendChild(meta);
+
+  hdr.addEventListener('click', () => toggleAcc(idx));
+  acc.appendChild(hdr);
 
   // ── Body ──
   const body = document.createElement('div');
-  body.className = 'bag-card-body';
+  body.className = 'acc-body';
+  body.id = `accBody_${idx}`;
 
-  // Alert box per bag
-  const alertBox = document.createElement('div');
-  alertBox.id = `bagAlert_${idx}`;
-  body.appendChild(alertBox);
+  // Adder row: Category + Item
+  const adderRow = document.createElement('div');
+  adderRow.className = 'adder-row';
 
-  // ── Category + Item dropdowns ──
-  const grid = document.createElement('div');
-  grid.className = 'item-adder-grid';
-
-  // Category
   const catGrp = document.createElement('div');
   catGrp.className = 'form-group';
   const catLbl = document.createElement('label');
   catLbl.textContent = 'Category';
   const catSel = document.createElement('select');
   catSel.innerHTML = '<option value="">— Select —</option>';
-  const cats = SHEET_NAMES.filter(n => INVENTORY[n]);
-  cats.forEach(c => {
+  SHEET_NAMES.filter(n => INVENTORY[n]).forEach(c => {
     const o = document.createElement('option');
     o.value = c; o.textContent = c; catSel.appendChild(o);
   });
   catGrp.appendChild(catLbl); catGrp.appendChild(catSel);
-  grid.appendChild(catGrp);
+  adderRow.appendChild(catGrp);
 
-  // Item (Tom Select)
   const itemGrp = document.createElement('div');
   itemGrp.className = 'form-group';
   const itemLbl = document.createElement('label');
   itemLbl.textContent = 'Item';
-  const itemSelEl = document.createElement('select');
-  itemSelEl.innerHTML = '<option value="">— Select category first —</option>';
-  itemSelEl.id = `itemSel_${idx}`;
-  itemGrp.appendChild(itemLbl); itemGrp.appendChild(itemSelEl);
-  grid.appendChild(itemGrp);
+  const itemSel = document.createElement('select');
+  itemSel.id = `itemSel_${idx}`;
+  itemSel.innerHTML = '<option value="">— Select category —</option>';
+  itemGrp.appendChild(itemLbl); itemGrp.appendChild(itemSel);
+  adderRow.appendChild(itemGrp);
+  body.appendChild(adderRow);
 
-  body.appendChild(grid);
+  // Qty + Add button row
+  const qaRow = document.createElement('div');
+  qaRow.className = 'qty-add-row';
 
-  // ── Qty row (hidden by default) ──
-  const qtyRow = document.createElement('div');
-  qtyRow.className = 'qty-row';
-  qtyRow.style.display = 'none';
+  const qtyField = document.createElement('div');
+  qtyField.className = 'qty-field';
   const qtyLbl = document.createElement('label');
-  qtyLbl.textContent = 'Quantity:';
+  qtyLbl.textContent = 'Qty';
   const qtyInp = document.createElement('input');
   qtyInp.type = 'number'; qtyInp.min = '1'; qtyInp.value = '1';
-  qtyRow.appendChild(qtyLbl); qtyRow.appendChild(qtyInp);
-  body.appendChild(qtyRow);
+  qtyField.appendChild(qtyLbl); qtyField.appendChild(qtyInp);
+  qaRow.appendChild(qtyField);
 
-  // ── Add Item button ──
   const addBtn = document.createElement('button');
-  addBtn.className = 'btn btn-primary';
-  addBtn.style.cssText = 'width:100%; margin-bottom:12px;';
-  addBtn.textContent = '+ Add Item to Bag';
+  addBtn.className = 'btn btn-primary btn-sm';
+  addBtn.textContent = '+ Add Item';
   addBtn.disabled = true;
-  body.appendChild(addBtn);
+  addBtn.style.alignSelf = 'flex-end';
+  qaRow.appendChild(addBtn);
+  body.appendChild(qaRow);
 
-  // Tom Select instance
+  // Wire category change → rebuild item dropdown
   let tomInst = null;
-
-  // Category change
   catSel.addEventListener('change', () => {
     const cat = catSel.value;
-    if (tomInst) { tomInst.destroy(); tomInst = null; }
-    itemSelEl.innerHTML = '<option value=""></option>';
+    if (tomInst) { tomInst.destroy(); tomInst = null; delete tomInstances[idx]; }
+    itemSel.innerHTML = '<option value=""></option>';
     addBtn.disabled = true;
-    qtyRow.style.display = 'none';
+    qtyField.style.display = 'none';
     qtyInp.value = '1';
     if (!cat || !INVENTORY[cat]) return;
-
     INVENTORY[cat].items.forEach(it => {
       const o = document.createElement('option');
-      o.value = it.name; o.textContent = it.name;
-      itemSelEl.appendChild(o);
+      o.value = it.name; o.textContent = it.name; itemSel.appendChild(o);
     });
-
     tomInst = new TomSelect(`#itemSel_${idx}`, {
       placeholder: 'Search item…', maxOptions: 200,
       sortField: { field: 'text', direction: 'asc' },
       onChange(val) {
         addBtn.disabled = !val;
-        qtyRow.style.display = (val && QUANTITY_CATS.has(cat)) ? '' : 'none';
+        qtyField.style.display = (val && QUANTITY_CATS.has(cat)) ? '' : 'none';
         if (!val) qtyInp.value = '1';
       }
     });
+    tomInstances[idx] = tomInst;
   });
 
-  // Add item
+  // Wire Add button
   addBtn.addEventListener('click', () => {
     const cat  = catSel.value;
     const name = tomInst ? tomInst.getValue() : '';
@@ -232,36 +238,36 @@ function buildBagCard(bag, idx) {
 
     // Reset adder
     catSel.value = '';
-    if (tomInst) { tomInst.destroy(); tomInst = null; }
-    itemSelEl.innerHTML = '<option value="">— Select category first —</option>';
-    qtyRow.style.display = 'none';
+    if (tomInst) { tomInst.destroy(); tomInst = null; delete tomInstances[idx]; }
+    itemSel.innerHTML = '<option value="">— Select category —</option>';
+    qtyField.style.display = 'none';
     qtyInp.value = '1';
     addBtn.disabled = true;
 
-    updateBagItemsList(bag, idx);
-    updateBagCountPill(bag, idx);
+    refreshItemsList(bag, idx);
+    refreshMeta(bag, idx);
     renderTotals();
     renderSummary();
     broadcastToJotform();
   });
 
-  // ── Items list ──
+  // Items list
   const listDiv = document.createElement('div');
-  listDiv.id = `bagItemsList_${idx}`;
+  listDiv.id = `itemsList_${idx}`;
   body.appendChild(listDiv);
-  renderBagItemsList(bag, idx, listDiv);
+  renderItemsList(bag, idx, listDiv);
 
-  // ── Bag weight input ──
+  // Bag weight
   const wRow = document.createElement('div');
-  wRow.className = 'bag-weight-input-row';
+  wRow.className = 'bag-weight-row';
   const wLbl = document.createElement('label');
   wLbl.textContent = `Bag ${idx + 1} Weight:`;
   const wInp = document.createElement('input');
   wInp.type = 'number'; wInp.min = '0'; wInp.step = '0.001';
-  wInp.placeholder = '0.000';
-  wInp.value = bag.weight || '';
+  wInp.placeholder = '0.000'; wInp.value = bag.weight || '';
   wInp.addEventListener('input', () => {
     bag.weight = wInp.value;
+    refreshMeta(bag, idx);
     renderTotals();
     renderSummary();
     broadcastToJotform();
@@ -271,75 +277,95 @@ function buildBagCard(bag, idx) {
   wRow.appendChild(wLbl); wRow.appendChild(wInp); wRow.appendChild(wUnit);
   body.appendChild(wRow);
 
-  card.appendChild(body);
-  return card;
+  acc.appendChild(body);
+  return acc;
 }
 
-// ── Update just the items list inside a bag (without full rebuild) ──
-function updateBagItemsList(bag, idx) {
-  const listDiv = document.getElementById(`bagItemsList_${idx}`);
-  if (listDiv) renderBagItemsList(bag, idx, listDiv);
+// ── Toggle accordion ──
+function toggleAcc(idx) {
+  const target = document.getElementById(`acc_${idx}`);
+  const isOpen = target.classList.contains('open');
+  // Close all
+  bags.forEach((_, i) => {
+    const el = document.getElementById(`acc_${i}`);
+    if (el) el.classList.remove('open');
+  });
+  // Open clicked if it was closed
+  if (!isOpen) target.classList.add('open');
 }
 
-function updateBagCountPill(bag, idx) {
-  const pill = document.getElementById(`bagCount_${idx}`);
-  if (pill) pill.textContent = formatItemCount(bag);
+// ── Refresh items list inside a bag ──
+function refreshItemsList(bag, idx) {
+  const div = document.getElementById(`itemsList_${idx}`);
+  if (div) renderItemsList(bag, idx, div);
 }
 
-function formatItemCount(bag) {
-  const total = bag.items.reduce((s, it) => s + (it.isQty ? it.qty : 1), 0);
-  return `${total} item${total !== 1 ? 's' : ''}`;
-}
-
-function renderBagItemsList(bag, idx, container) {
+function renderItemsList(bag, idx, container) {
   container.innerHTML = '';
   if (bag.items.length === 0) {
-    container.innerHTML = '<p class="no-items-msg">No items added yet.</p>';
+    container.innerHTML = '<p class="no-items">No items yet.</p>';
     return;
   }
   const ul = document.createElement('ul');
-  ul.className = 'bag-items-list';
+  ul.className = 'items-list';
   bag.items.forEach((it, iIdx) => {
     const li = document.createElement('li');
-    li.className = 'bag-item-row';
+    li.className = 'item-row';
 
-    const catTag = document.createElement('span');
-    catTag.className = 'item-cat-tag';
-    catTag.textContent = it.cat;
+    const cat = document.createElement('span');
+    cat.className = 'item-cat'; cat.textContent = it.cat;
 
     const nm = document.createElement('span');
-    nm.className = 'item-name-text';
-    nm.textContent = it.name;
+    nm.className = 'item-name'; nm.textContent = it.name;
 
     const rm = document.createElement('button');
-    rm.className = 'btn-danger-sm';
-    rm.textContent = '✕';
+    rm.className = 'item-rm'; rm.textContent = '✕';
     rm.addEventListener('click', () => {
       bag.items.splice(iIdx, 1);
-      updateBagItemsList(bag, idx);
-      updateBagCountPill(bag, idx);
+      refreshItemsList(bag, idx);
+      refreshMeta(bag, idx);
       renderTotals();
       renderSummary();
       broadcastToJotform();
     });
 
-    li.appendChild(catTag);
-    li.appendChild(nm);
-
+    li.appendChild(cat); li.appendChild(nm);
     if (it.isQty && it.qty > 1) {
-      const qTag = document.createElement('span');
-      qTag.className = 'item-qty-tag';
-      qTag.textContent = `×${it.qty}`;
-      li.appendChild(qTag);
+      const q = document.createElement('span');
+      q.className = 'item-qty'; q.textContent = `×${it.qty}`;
+      li.appendChild(q);
     }
-
     li.appendChild(rm);
     ul.appendChild(li);
   });
   container.appendChild(ul);
 }
 
-// ── Render Grand Totals ──
+// ── Refresh accordion header meta chips ──
+function refreshMeta(bag, idx) {
+  const meta = document.getElementById(`accMeta_${idx}`);
+  if (meta) updateMeta(meta, bag);
+}
+
+function updateMeta(meta, bag) {
+  meta.innerHTML = '';
+  const totalUnits = bag.items.reduce((s, it) => s + (it.isQty ? it.qty : 1), 0);
+  const w = parseFloat(bag.weight) || 0;
+
+  const c1 = document.createElement('span');
+  c1.className = 'acc-meta-chip';
+  c1.textContent = `${totalUnits} item${totalUnits !== 1 ? 's' : ''}`;
+  meta.appendChild(c1);
+
+  if (w > 0) {
+    const c2 = document.createElement('span');
+    c2.className = 'acc-meta-chip';
+    c2.textContent = `${w.toFixed(3)} kg`;
+    meta.appendChild(c2);
+  }
+}
+
+// ── Grand Totals ──
 function renderTotals() {
   const totalItems  = bags.reduce((s, b) => s + b.items.reduce((si, it) => si + (it.isQty ? it.qty : 1), 0), 0);
   const totalWeight = bags.reduce((s, b) => s + (parseFloat(b.weight) || 0), 0);
@@ -348,31 +374,22 @@ function renderTotals() {
   document.getElementById('gtWeight').textContent = totalWeight.toFixed(3) + ' kg';
 }
 
-// ── Summary Text ──
+// ── Summary ──
 function buildSummaryText() {
-  if (bags.length === 0) return '— No bags —';
-  let lines = [];
-  let grandItems = 0, grandWeight = 0;
-
+  if (!bags.length) return '— No bags —';
+  let lines = [], grandItems = 0, grandWeight = 0;
   bags.forEach((bag, idx) => {
-    const bagW     = parseFloat(bag.weight) || 0;
-    const bagCount = bag.items.reduce((s, it) => s + (it.isQty ? it.qty : 1), 0);
-    grandItems  += bagCount;
-    grandWeight += bagW;
-
+    const w = parseFloat(bag.weight) || 0;
+    const n = bag.items.reduce((s, it) => s + (it.isQty ? it.qty : 1), 0);
+    grandItems += n; grandWeight += w;
     lines.push(`--- BAG ${idx + 1} ---`);
-    if (bag.items.length === 0) {
-      lines.push('(no items)');
-    } else {
-      bag.items.forEach(it => {
-        const qStr = it.isQty && it.qty > 1 ? ` ×${it.qty}` : '';
-        lines.push(`[${it.cat}] ${it.name}${qStr}`);
-      });
-    }
-    lines.push(`BAG WEIGHT: ${bagW.toFixed(3)}kg`);
+    if (!bag.items.length) { lines.push('(no items)'); }
+    else bag.items.forEach(it => {
+      lines.push(`[${it.cat}] ${it.name}${it.isQty && it.qty > 1 ? ` ×${it.qty}` : ''}`);
+    });
+    lines.push(`BAG WEIGHT: ${w.toFixed(3)}kg`);
     lines.push('');
   });
-
   lines.push(`TOTAL BAGS: ${bags.length}`);
   lines.push(`TOTAL ITEMS: ${grandItems}`);
   lines.push(`TOTAL WEIGHT: ${grandWeight.toFixed(3)}kg`);
@@ -398,15 +415,14 @@ function broadcastToJotform() {
   }
   try {
     if (window.parent && window.parent !== window) {
-      // TODO: update input_XX to the correct field ID for this JotForm
+      // TODO: update input_XX to the correct JotForm field ID for this form
       const t = window.parent.document.getElementById('input_82');
       if (t) {
         t.value = value;
         t.dispatchEvent(new Event('input',  { bubbles: true }));
         t.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      window.parent.postMessage(
-        JSON.stringify({ type: 'widgetValue', value, valid: true }), '*');
+      window.parent.postMessage(JSON.stringify({ type: 'widgetValue', value, valid: true }), '*');
     }
   } catch(e) {}
 }
